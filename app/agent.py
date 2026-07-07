@@ -43,6 +43,7 @@ logger = logging.getLogger("crisis_router")
 # ==============================================================================
 
 class ListenerOutput(BaseModel):
+    is_emergency: bool = Field(description="True if this is a genuine disaster, emergency, hazard, or crisis needing emergency first responder dispatch. False if it is spam, general conversation, or non-incident info.")
     urgency: Literal['Critical', 'High', 'Moderate', 'Informational']
     incident_type: str
     location_text: str
@@ -61,6 +62,7 @@ class DispatcherOutput(BaseModel):
 class CrisisState(BaseModel):
     """Shared state object containing all fields for crisis response pipeline."""
     raw_message: str = ""
+    is_emergency: bool = True
     urgency: Literal['Critical', 'High', 'Moderate', 'Informational'] = 'Moderate'
     incident_type: str = ""
     location_text: str = ""
@@ -196,19 +198,25 @@ def ingest_message(ctx: Context, node_input: str):
     ctx.state["raw_message"] = node_input
 
 @node
-async def update_listener_state(ctx: Context):
+async def update_listener_state(ctx: Context) -> str:
     """Saves the output from the Listener agent into the top-level shared state fields."""
     await asyncio.sleep(3.0)
     output = ctx.state.get("listener_output")
+    is_emergency = True
     if output:
         if isinstance(output, dict):
+            is_emergency = output.get("is_emergency", True)
+            ctx.state["is_emergency"] = is_emergency
             ctx.state["urgency"] = output.get("urgency", "Moderate")
             ctx.state["incident_type"] = output.get("incident_type", "")
             ctx.state["location_text"] = output.get("location_text", "")
         else:
+            is_emergency = output.is_emergency
+            ctx.state["is_emergency"] = is_emergency
             ctx.state["urgency"] = output.urgency
             ctx.state["incident_type"] = output.incident_type
             ctx.state["location_text"] = output.location_text
+    return "emergency" if is_emergency else "non-emergency"
 
 @node
 async def update_cartographer_state(ctx: Context):
@@ -236,6 +244,8 @@ async def update_dispatcher_state(ctx: Context):
 def finalize_response(ctx: Context) -> str:
     """Returns a final summary of the disaster response state."""
     state = ctx.state
+    if not state.get("is_emergency", True):
+        return "Message processed. Classified as non-emergency/informational. No dispatch required."
     return (
         f"Incident Ingested & Handled Successfully:\n"
         f"- Urgency: {state.get('urgency')}\n"
@@ -282,6 +292,7 @@ listener_agent = Agent(
     instruction="""You are the Listener Agent (Ingestion & Triage).
 Your task is to analyze the incoming natural disaster distress signal and perform Named Entity Recognition (NER).
 Extract the following information:
+- is_emergency: Set to True if this is a genuine disaster, emergency, hazard, or crisis needing emergency first responder dispatch. Set to False if it is spam, a greeting, general conversation, or non-incident info.
 - urgency: Must be one of 'Critical', 'High', 'Moderate', 'Informational'.
 - incident_type: The type of incident, e.g., 'Flood', 'Fire', 'Medical', 'Trapped', 'Infrastructure', 'Other'.
 - location_text: The location name or address mentioned.
@@ -334,14 +345,17 @@ Output the result from the tool strictly matching the requested output schema's 
 # 6. Workflow Creation & Orchestration
 # ==============================================================================
 
-# Sequential multi-agent workflow
+# Sequential multi-agent workflow with conditional emergency routing
 root_agent = Workflow(
     name="crisis_workflow",
     edges=[
         (START, ingest_message),
         (ingest_message, listener_agent),
         (listener_agent, update_listener_state),
-        (update_listener_state, cartographer_agent),
+        (update_listener_state, {
+            "emergency": cartographer_agent,
+            "non-emergency": finalize_response
+        }),
         (cartographer_agent, update_cartographer_state),
         (update_cartographer_state, dispatcher_agent),
         (dispatcher_agent, update_dispatcher_state),

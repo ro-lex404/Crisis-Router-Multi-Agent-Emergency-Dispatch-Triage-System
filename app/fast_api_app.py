@@ -126,6 +126,17 @@ attach_reasoning_engine_routes(app)
 
 def run_local_mock_pipeline(message: str, session_id: str) -> dict:
     msg_lower = message.lower()
+    
+    # Heuristics to classify if this is an emergency
+    is_emergency = True
+    msg_no_punc = "".join(c for c in msg_lower if c.isalnum() or c.isspace())
+    words = set(msg_no_punc.split())
+    non_emergency_keywords = {"hello", "hi", "test", "weather", "nice", "day", "how", "are", "you", "thanks", "thank"}
+    emergency_keywords = {"help", "fire", "flood", "water", "rain", "hurt", "injured", "injury", "trapped", "broke", "block", "spark", "utility"}
+    
+    if not (words & emergency_keywords) and (words & non_emergency_keywords or len(words) < 3):
+        is_emergency = False
+
     urgency = "Moderate"
     if any(k in msg_lower for k in ["help", "critical", "immediate", "emergency"]):
         urgency = "Critical" if "immediate" in msg_lower or "critical" in msg_lower else "High"
@@ -154,23 +165,32 @@ def run_local_mock_pipeline(message: str, session_id: str) -> dict:
     elif "new york" in msg_lower or "ny" in msg_lower:
         location_text = "New York"
         
-    from app.agent import geocode_location
-    coords = geocode_location(location_text)
-    
-    from app.agent import allocate_rescue_unit
-    dispatch_plan = allocate_rescue_unit(incident_type, location_text)
-    
+    if is_emergency:
+        from app.agent import geocode_location
+        coords = geocode_location(location_text)
+        
+        from app.agent import allocate_rescue_unit
+        dispatch_plan = allocate_rescue_unit(incident_type, location_text)
+    else:
+        coords = {"lat": 0.0, "lon": 0.0}
+        dispatch_plan = "Message processed. Classified as non-emergency. No dispatch required."
+        incident_type = "Non-Emergency"
+        urgency = "Informational"
+        location_text = "N/A"
+        
     from app.agent import load_system_db, save_system_db
     db = load_system_db()
     
     state_dict = {
         "raw_message": message,
+        "is_emergency": is_emergency,
         "urgency": urgency,
         "incident_type": incident_type,
         "location_text": location_text,
         "coordinates": coords,
         "dispatch_plan": dispatch_plan,
         "listener_output": {
+            "is_emergency": is_emergency,
             "urgency": urgency,
             "incident_type": incident_type,
             "location_text": location_text
@@ -184,6 +204,7 @@ def run_local_mock_pipeline(message: str, session_id: str) -> dict:
     db["incidents"].append({
         "id": session_id,
         "raw_message": message,
+        "is_emergency": is_emergency,
         "urgency": urgency,
         "incident_type": incident_type,
         "location_text": location_text,
@@ -233,6 +254,7 @@ async def run_pipeline(request: Request) -> dict:
         db["incidents"].append({
             "id": session_id,
             "raw_message": state_dict.get("raw_message", ""),
+            "is_emergency": state_dict.get("is_emergency", True),
             "urgency": state_dict.get("urgency", "Moderate"),
             "incident_type": state_dict.get("incident_type", "General"),
             "location_text": state_dict.get("location_text", "Unknown"),

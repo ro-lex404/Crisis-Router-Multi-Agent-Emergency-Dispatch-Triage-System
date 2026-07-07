@@ -85,15 +85,19 @@ if role == "Civilian Distress Console":
             urgency = data.get("urgency", "Moderate")
             incident_type = data.get("incident_type", "General")
             dispatch_plan = data.get("dispatch_plan", "")
+            is_emergency = data.get("is_emergency", True)
             
-            st.success("### ✅ Emergency Signal Ingested")
-            
-            # Simple civilian-friendly dispatch layout
-            st.markdown(f"**Urgency Level:** {urgency}")
-            st.markdown(f"**Emergency Type:** {incident_type}")
-            
-            st.info(f"👉 **First Responder Status:** {dispatch_plan if dispatch_plan else 'Unit Dispatching...'}")
-            st.markdown("⚠️ **Please stay safe and remain calm. First responders have been notified.**")
+            if is_emergency:
+                st.success("### ✅ Emergency Signal Ingested")
+                st.markdown(f"**Urgency Level:** {urgency}")
+                st.markdown(f"**Emergency Type:** {incident_type}")
+                st.info(f"👉 **First Responder Status:** {dispatch_plan if dispatch_plan else 'Unit Dispatching...'}")
+                st.markdown("⚠️ **Please stay safe and remain calm. First responders have been notified.**")
+            else:
+                st.warning("### ℹ️ Signal Processed & Logged")
+                st.markdown(f"**Classification:** Non-Emergency / General Inquiry")
+                st.info(f"👉 **System Action:** {dispatch_plan}")
+                st.markdown("This request has been logged under informational alerts. No emergency rescue deployment is required.")
         else:
             st.write("No submitted signals in this session yet.")
 
