@@ -17,24 +17,26 @@ The primary objective of **Crisis-Router** is to automate the parsing, geocoding
 ---
 
 ## 2. Multi-Agent System Architecture
-Crisis-Router is structured as a sequential graph workflow composed of three specialized agents and state update nodes. It relies on the **Blackboard Architectural Pattern** for state management, where all agents read from and write to a central validated Pydantic state schema (`CrisisState`).
+Crisis-Router is structured as a sequential graph workflow composed of three specialized agents and state update nodes. It relies on the **Blackboard Architectural Pattern** for state management, where all agents read from and write to a central validated Pydantic state schema (`CrisisState`), and uses conditional routing to handle non-emergencies.
 
 ```mermaid
 graph TD
     StartNode([Start]) -->|Ingest Raw Msg| IngestNode["Ingest Message Node"]
     IngestNode -->|State: raw_message| ListenerAgent["Listener Agent (NER & Triage)"]
     ListenerAgent -->|State: listener_output| UpdateListenerNode["Update Listener State"]
-    UpdateListenerNode -->|State: urgency, type, location| CartographerAgent["Cartographer Agent (Geocoding)"]
+    UpdateListenerNode -->|Route: emergency| CartographerAgent["Cartographer Agent (Geocoding)"]
+    UpdateListenerNode -->|Route: non-emergency| FinalizeNode["Finalize Response Node"]
     CartographerAgent -->|State: coordinates_output| UpdateCartographerNode["Update Cartographer State"]
     UpdateCartographerNode -->|State: coordinates| DispatcherAgent["Dispatcher Agent (Resource Allocation)"]
     DispatcherAgent -->|State: dispatcher_output| UpdateDispatcherNode["Update Dispatcher State"]
-    UpdateDispatcherNode -->|State: dispatch_plan| FinalizeNode["Finalize Response Node"]
+    UpdateDispatcherNode -->|State: dispatch_plan| FinalizeNode
     FinalizeNode --> EndNode([End])
 ```
 
 ### 2.1 State Management (`CrisisState`)
 The core memory of the system is the `CrisisState` Pydantic class. Unlike generic chat applications that store unstructured conversation history list arrays, Crisis-Router uses a strictly typed schema:
 *   `raw_message` (str): The raw distress signal input text.
+*   `is_emergency` (bool): Classified indicator of whether emergency first responder dispatch is required.
 *   `urgency` (Literal): The classified urgency level (Critical, High, Moderate, Informational).
 *   `incident_type` (str): The categorized incident type (e.g., Fire, Flood, Medical, etc.).
 *   `location_text` (str): The text-based location extracted from the signal.
@@ -48,9 +50,9 @@ The core memory of the system is the `CrisisState` Pydantic class. Unlike generi
 
 ### 3.1 Listener Agent (Ingestion & Triage)
 The **Listener Agent** acts as the ingestion gateway. Its role is to perform Named Entity Recognition (NER) on the unstructured raw message.
-*   **Prompt Design**: It is given system instructions to classify the urgency and extract key entities. The urgency classification follows emergency service protocols (e.g., assessing threats to life vs. infrastructure damage).
+*   **Prompt Design**: It is given system instructions to classify the urgency, determine if it is a genuine emergency needing dispatch (`is_emergency`), and extract key entities. The urgency classification follows emergency service protocols (e.g., assessing threats to life vs. infrastructure damage).
 *   **Structured Output**: To prevent the model from outputting free-form conversational text, it is bound to the `ListenerOutput` schema. The model must output a JSON object matching this schema exactly.
-*   **State Update**: Once the agent completes its run, the workflow passes control to the `update_listener_state` node, which copies the extracted values (`urgency`, `incident_type`, `location_text`) into the main `CrisisState` variables.
+*   **State Update & Conditional Routing**: Once the agent completes its run, the workflow passes control to the `update_listener_state` node, which copies the extracted values (`is_emergency`, `urgency`, `incident_type`, `location_text`) into the main `CrisisState` variables and returns either `"emergency"` or `"non-emergency"`. This return string triggers the graph's conditional edge to either run the geocoding agent or bypass directly to response finalization.
 
 ### 3.2 Cartographer Agent (Geocoding)
 The **Cartographer Agent** is responsible for geographic resolution. 
@@ -113,7 +115,7 @@ To ensure the dashboard remains fully demonstratable in offline environments or 
 1.  **Persona Specialization**: Splitting tasks into independent agent objects prevents prompt bloating and keeps the model focused.
 2.  **Function-Calling Tool Binding**: The agents don't guess; they call structured tools to get real coordinates and interact with the database registry.
 3.  **Blackboard Coordination**: Shared state schema acts as a central communication bus.
-4.  **Autonomous Routing**: In future revisions, conditional branching can route non-emergencies away from the dispatch path based on the agent's classification.
+4.  **Autonomous Conditional Routing**: Employs dynamic decision trees in the graph workflow, enabling the system to evaluate whether an input is a genuine emergency and autonomously route non-emergencies around geocoding/dispatch sub-processes to conserve critical responder resources.
 
 ---
 

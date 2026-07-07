@@ -15,25 +15,26 @@ During natural disasters (e.g., severe flooding, hurricanes, fires), traditional
 
 ## 2. System Architecture
 
-The project employs a structured graph workflow composed of three specialized agents collaborating sequentially through a validated shared Pydantic state schema:
+The project employs a structured graph workflow composed of three specialized agents collaborating through a validated shared Pydantic state schema, using conditional routing to handle non-emergencies dynamically:
 
 ```mermaid
 graph TD
     StartNode([Start]) -->|Ingest Raw Msg| IngestNode["Ingest Message Node"]
     IngestNode -->|State: raw_message| ListenerAgent["Listener Agent (NER & Triage)"]
     ListenerAgent -->|State: listener_output| UpdateListenerNode["Update Listener State"]
-    UpdateListenerNode -->|State: urgency, type, location| CartographerAgent["Cartographer Agent (Geocoding)"]
+    UpdateListenerNode -->|Route: emergency| CartographerAgent["Cartographer Agent (Geocoding)"]
+    UpdateListenerNode -->|Route: non-emergency| FinalizeNode["Finalize Response Node"]
     CartographerAgent -->|State: coordinates_output| UpdateCartographerNode["Update Cartographer State"]
     UpdateCartographerNode -->|State: coordinates| DispatcherAgent["Dispatcher Agent (Resource Allocation)"]
     DispatcherAgent -->|State: dispatcher_output| UpdateDispatcherNode["Update Dispatcher State"]
-    UpdateDispatcherNode -->|State: dispatch_plan| FinalizeNode["Finalize Response Node"]
+    UpdateDispatcherNode -->|State: dispatch_plan| FinalizeNode
     FinalizeNode --> EndNode([End])
 ```
 
 ### The Three Agents:
 1. **Listener Agent (Ingestion & Triage)**:
-   - **Role**: Receives the raw message and performs Named Entity Recognition (NER).
-   - **Output**: Extracts `urgency` (Critical, High, Moderate, Informational), `incident_type` (Fire, Flood, Medical, etc.), and `location_text`.
+   - **Role**: Receives the raw message, performs Named Entity Recognition (NER), and classifies if the signal requires emergency first responder dispatch.
+   - **Output**: Extracts `is_emergency` (bool), `urgency` (Critical, High, Moderate, Informational), `incident_type` (Fire, Flood, Medical, etc.), and `location_text`.
 2. **Cartographer Agent (Geocoding)**:
    - **Role**: Geocodes the text location into exact `lat` and `lon` coordinates.
    - **Tool**: Bound to `geocode_location` which queries the live OpenStreetMap Nominatim web API with custom user-agent compliance and local fallback support.
@@ -49,6 +50,7 @@ graph TD
 *   **Tool Use (Function Calling)**: Agents autonomously interact with outside services (OSM Geocoding API) and local systems (persistent JSON database registry) via function bindings.
 *   **Structured Shared Memory (Blackboard Pattern)**: All nodes read and write to a central validated `CrisisState` Pydantic schema, ensuring type-safe coordination without context-drift.
 *   **Stateful Resource Management**: The system tracks stateful rescue units (`Fire Engine 1`, `Rescue Boat 2`, `Ambulance 3`, etc.) across multiple incoming signals, shifting units to `Busy` when deployed and allowing responders to release them via a dashboard reset.
+*   **Conditional Agentic Routing**: Implements dynamic branching edges in the graph workflow; if the triage classifier determines a signal is a non-emergency, it automatically bypasses downstream geocoding/dispatch agents and logs the inquiry informational status directly.
 
 ---
 
@@ -59,11 +61,12 @@ The interface in [dashboard.py](file:///c:/Users/alexe/disaster-response-agent/d
 1.  **Civilian Distress Console**:
     - Clean, reassuring reporting interface for victims.
     - Prompts for presets or custom text inputs.
-    - Hides developer logs and map coordinates, outputting only: *"Emergency Signal Received. Dispatched: Rescue Boat 2. Please stay safe."*
+    - If emergency is detected, outputs: *"Emergency Signal Ingested successfully. First responder dispatched: [Responder]. Please stay safe."*
+    - If non-emergency is detected, outputs a warning banner: *"Signal Processed & Logged. No emergency rescue deployment required."*
 2.  **Dispatcher Ops Center**:
     - **Live Operational Map**: A Folium map rendering coordinates, urgency ratings (color-coded red/orange markers), and dispatch plans for all logged incidents.
     - **Rescue Unit Status Registry**: Live status monitoring table showing unit allocations (Available vs Deployed).
-    - **Incident Log**: Historical table log of parsed distress signals.
+    - **Incident Log**: Historical table log of parsed distress signals including their classification.
 
 ---
 
