@@ -1,94 +1,113 @@
-# disaster-response
+# Crisis-Router: Multi-Agent Emergency Dispatch & Triage System
 
-Simple ReAct agent
-Agent generated with `agents-cli` version `1.0.0`
+Crisis-Router is a multi-agent emergency workflow built with Google ADK, FastAPI, and Streamlit.  
+It ingests distress messages, classifies urgency and incident type, geocodes locations, and allocates rescue units from a tracked registry.
 
-## Project Structure
+## Key Features
 
+- Multi-agent orchestration for triage, geocoding, and dispatch
+- Conditional routing for emergency vs non-emergency messages
+- Live FastAPI backend with stateful unit/incident tracking
+- Streamlit dashboard with role-based views:
+  - Civilian Distress Console
+  - Dispatcher Operations Center
+- Offline simulator mode for demos without live model/API calls
+
+## Architecture
+
+The core workflow in `/app/agent.py` is composed of:
+
+1. **Listener Agent**: Classifies emergency status, urgency, incident type, and location
+2. **Cartographer Agent**: Resolves location coordinates via `geocode_location`
+3. **Dispatcher Agent**: Allocates an available rescue unit via `allocate_rescue_unit`
+
+Shared workflow state is stored in `CrisisState`, and persistent system data is saved in `app/disaster_system.json` at runtime.
+
+## Repository Structure
+
+```text
+app/
+  agent.py           # Multi-agent workflow and tool functions
+  fast_api_app.py    # FastAPI app + API routes
+  dashboard.py       # Streamlit operational dashboard
+  app_utils/         # Service adapters, telemetry, typing, A2A helpers
+tests/
+  unit/              # Unit tests
+  integration/       # Integration tests
+  eval/              # Evaluation datasets
 ```
-disaster-response/
-├── app/         # Core agent code
-│   ├── agent.py               # Main agent logic
-│   ├── fast_api_app.py        # FastAPI Backend server
-│   └── app_utils/             # App utilities and helpers
-├── tests/                     # Unit, integration, and load tests
-├── GEMINI.md                  # AI-assisted development guide
-└── pyproject.toml             # Project dependencies
-```
 
-> 💡 **Tip:** Use [Antigravity CLI](https://antigravity.google/) for AI-assisted development - project context is pre-configured in `GEMINI.md`.
+## Prerequisites
 
-## Requirements
+- Python 3.11–3.13
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- `agents-cli` (`uv tool install google-agents-cli`)
 
-Before you begin, ensure you have:
-- **uv**: Python package manager (used for all dependency management in this project) - [Install](https://docs.astral.sh/uv/getting-started/installation/) ([add packages](https://docs.astral.sh/uv/concepts/dependencies/) with `uv add <package>`)
-- **agents-cli**: Agents CLI - Install with `uv tool install google-agents-cli`
-- **Google Cloud SDK**: For GCP services - [Install](https://cloud.google.com/sdk/docs/install)
+## Local Setup
 
-
-## Quick Start
-
-Install `agents-cli` and its skills if not already installed:
-
-```bash
-uvx google-agents-cli setup
-```
-
-Install required packages:
+1. Install project dependencies:
 
 ```bash
 agents-cli install
 ```
 
-Test the agent with a local web server:
+2. Configure environment:
+
+```bash
+cp .env.example .env
+```
+
+Set your key in `.env`:
+
+```env
+GEMINI_API_KEY=your-gemini-api-key
+```
+
+## Run Locally
+
+### 1) Start the FastAPI backend
+
+```bash
+uv run python -m uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8000
+```
+
+### 2) Start the Streamlit dashboard (in a new terminal)
+
+```bash
+uv run streamlit run app/dashboard.py
+```
+
+### 3) Optional: ADK playground
 
 ```bash
 agents-cli playground
 ```
 
-You can also use features from the [ADK](https://adk.dev/) CLI with `uv run adk`.
+## API Endpoints
 
-## Commands
+- `POST /api/run_pipeline` — Process incoming distress message
+- `GET /api/system_state` — Read current incidents and unit registry
+- `POST /api/reset_system` — Reset incidents and unit availability
+- `POST /feedback` — Submit feedback payload
 
-| Command              | Description                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `agents-cli install` | Install dependencies using uv                                                         |
-| `agents-cli playground` | Launch local development environment                                                  |
-| `agents-cli lint`    | Run code quality checks                                                               |
-| `agents-cli eval`    | Evaluate agent behavior (generate, grade, analyze, and more — see `agents-cli eval --help`) |
-| `uv run pytest tests/unit tests/integration` | Run unit and integration tests                                                        |
-| `agents-cli deploy`  | Deploy agent to Agent Runtime                                                                |
-| `agents-cli publish gemini-enterprise` | Register deployed agent to Gemini Enterprise                    || [A2A Inspector](https://github.com/a2aproject/a2a-inspector) | Launch A2A Protocol Inspector                                                        |
+## Testing & Quality
 
-## 🛠️ Project Management
+Run tests:
 
-| Command | What It Does |
-|---------|--------------|
-| `agents-cli scaffold enhance` | Add CI/CD pipelines and Terraform infrastructure |
-| `agents-cli infra cicd` | One-command setup of entire CI/CD pipeline + infrastructure |
-| `agents-cli scaffold upgrade` | Auto-upgrade to latest version while preserving customizations |
+```bash
+uv run pytest tests/unit tests/integration
+```
 
----
+Run lint checks:
 
-## Development
-
-Edit your agent logic in `app/agent.py` and test with `agents-cli playground` - it auto-reloads on save.
+```bash
+agents-cli lint
+```
 
 ## Deployment
 
+Deploy to Agent Runtime (requires cloud setup and credentials):
+
 ```bash
-gcloud config set project <your-project-id>
 agents-cli deploy
 ```
-
-To add CI/CD and Terraform, run `agents-cli scaffold enhance`.
-To set up your production infrastructure, run `agents-cli infra cicd`.
-
-## Observability
-
-Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
-
-## A2A Inspector
-
-This agent supports the [A2A Protocol](https://a2a-protocol.org/). Use the [A2A Inspector](https://github.com/a2aproject/a2a-inspector) to test interoperability.
-See the [A2A Inspector docs](https://github.com/a2aproject/a2a-inspector) for details.
